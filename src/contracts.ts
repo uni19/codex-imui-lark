@@ -1,0 +1,550 @@
+export type ChatType = "group" | "p2p" | "group_chat" | "p2p_chat" | string
+
+export type Asset = {
+  kind: "image" | "file"
+  key: string
+  name?: string
+  mime?: string
+  path?: string
+  url?: string
+}
+
+export type PromptPart =
+  | {
+      type: "text"
+      text: string
+    }
+  | {
+      type: "file"
+      url: string
+      mime: string
+      filename: string
+    }
+
+export type Inbound = {
+  id: string
+  platform: "feishu"
+  kind: "message" | "card_action"
+  event_id: string
+  tenant_id: string
+  chat_id: string
+  chat_type?: ChatType
+  thread_id?: string
+  user_id: string
+  message_id?: string
+  raw: unknown
+  created_at: number
+}
+
+export type InboundMessage = Inbound & {
+  kind: "message"
+  text: string
+  message_id: string
+  root_message_id?: string
+  parent_message_id?: string
+  message_type?: string
+  assets: Asset[]
+  mentions: string[]
+  mention_names?: string[]
+}
+
+export type InboundCardAction =
+  | (Inbound & {
+      kind: "card_action"
+      action: "approval"
+      req: string
+      reply: "once" | "always" | "reject"
+    })
+  | (Inbound & {
+      kind: "card_action"
+      action: "question"
+      req: string
+      answers: string[][]
+    })
+
+export type InboundEvent = InboundMessage | InboundCardAction
+
+export type ImSessionState = "active" | "pending_new" | "archived" | "error"
+
+export type ImSession = {
+  id: string
+  platform: "feishu"
+  tenant_id: string
+  chat_id: string
+  chat_type?: ChatType
+  thread_id?: string
+  root_message_id?: string
+  user_id?: string
+  session_id: string
+  directory?: string
+  workspace_id?: string
+  model?: CodexModel
+  state: ImSessionState
+  created_at: number
+  updated_at: number
+}
+
+export type TaskTerminalKind = "final" | "error" | "aborted"
+
+export type Task = {
+  id: string
+  im_session_id: string
+  session_id: string
+  inbound_id: string
+  reply_anchor_message_id?: string
+  directory?: string
+  workspace_id?: string
+  outbound_id?: string
+  status_outbound_id?: string
+  note?: string
+  status:
+    | "queued"
+    | "acked"
+    | "running"
+    | "waiting_permission"
+    | "waiting_question"
+    | "waiting_attachment"
+    | "completed"
+    | "failed"
+    | "aborted"
+  req_type?: "permission" | "question" | "attachment"
+  req_id?: string
+  req?: string
+  result_hash?: string
+  terminal_kind?: TaskTerminalKind
+  terminal_outbound_id?: string
+  superseded_by_task_id?: string
+  err?: string
+  created_at: number
+  updated_at: number
+}
+
+export type Pending = {
+  session_id: string
+  inbound_id: string
+  assets: Asset[]
+  created_at: number
+  updated_at: number
+}
+
+export type PendingAttachment = {
+  task_id: string
+  session_id?: string
+  origin_inbound_id: string
+  origin_message_id?: string
+  assets: Asset[]
+  created_at: number
+  updated_at: number
+}
+
+export type AssistantOutboundKind =
+  | "ack"
+  | "progress"
+  | "approval"
+  | "question"
+  | "attachment"
+  | "intermediate"
+  | "final"
+  | "error"
+
+export type AssistantOutboundAction = "reply" | "patch" | "deferred"
+
+export type AssistantOutboundState = "emitted" | "open" | "resolved"
+
+export type AssistantOutbound = {
+  id: string
+  task_id: string
+  session_id: string
+  seq: number
+  kind: AssistantOutboundKind
+  action: AssistantOutboundAction
+  state: AssistantOutboundState
+  origin_inbound_id: string
+  origin_message_id: string
+  req_key?: string
+  terminal: boolean
+  feishu_message_id?: string
+  payload: unknown
+  created_at: number
+  updated_at: number
+}
+
+export type Outbound = {
+  task_id: string
+  msg_id: string
+  kind: "text" | "card"
+  payload: unknown
+  created_at: number
+  updated_at: number
+}
+
+export type Attachment = {
+  message_id: string
+  key: string
+  asset: Asset
+  created_at: number
+  updated_at: number
+}
+
+export type ConnState = {
+  name: "message" | "card" | "codex"
+  status: "connecting" | "ready" | "reconnecting" | "stopped" | "error"
+  updated_at: number
+  err?: string
+  attempt?: number
+  wait_ms?: number
+}
+
+export type Job = {
+  id: string
+}
+
+export type QueueJob = Job & {
+  status: "queued" | "running" | "done" | "failed"
+  err?: string
+  created_at: number
+  updated_at: number
+}
+
+export type RenderOut = {
+  kind: "text" | "card"
+  body: unknown
+}
+
+export type CodexModel = {
+  providerID?: string
+  modelID: string
+  variant?: string
+}
+
+export type SessionModelPref =
+  | {
+      mode: "default"
+    }
+  | {
+      mode: "explicit"
+      model: CodexModel
+    }
+
+export type CodexEvent = {
+  type: string
+  properties: Record<string, unknown>
+}
+
+export type CodexSession = {
+  id: string
+  title: string
+  directory: string
+  workspace_id?: string
+  parent_id?: string
+  model?: CodexModel
+  created_at: number
+  updated_at: number
+}
+
+export type CodexWorkspace = {
+  id: string
+  name?: string
+  type?: string
+  branch?: string
+  current?: boolean
+}
+
+export type CodexStatus =
+  | {
+      type: "idle"
+    }
+  | {
+      type: "busy"
+    }
+  | {
+      type: "retry"
+      attempt: number
+      message: string
+      next: number
+    }
+
+export type CodexCommand = {
+  name: string
+  description?: string
+  source?: "command" | "mcp" | "skill"
+  hints: string[]
+}
+
+export type CodexSkill = {
+  name: string
+  description: string
+  location: string
+}
+
+export type CodexAgent = {
+  name: string
+  description?: string
+  mode: "subagent" | "primary" | "all"
+  hidden?: boolean
+  model?: {
+    provider_id: string
+    model_id: string
+    variant?: string
+  }
+}
+
+export type CodexProvider = {
+  id: string
+  name: string
+  connected: boolean
+  default_model?: string
+  models: Array<{
+    id: string
+    name: string
+    variants?: string[]
+  }>
+}
+
+export type CodexMcp = {
+  name: string
+  status: "connected" | "disabled" | "failed" | "needs_auth" | "needs_client_registration"
+  error?: string
+}
+
+export type CodexResult = {
+  state: "ok" | "filtered" | "empty"
+  text?: string
+  entries?: string[]
+  hash?: string
+  completed?: boolean
+}
+
+export type FeishuMode = "stdin" | "long_conn" | "off"
+
+export type RepoPref = {
+  scope: "chat" | "user"
+  tenant_id: string
+  chat_id?: string
+  user_id?: string
+  directory?: string
+  workspace_id?: string
+}
+
+export type AppCfg = {
+  log: {
+    level: "debug" | "info" | "warn" | "error"
+  }
+  storage: {
+    path: string
+  }
+  runtime?: {
+    config_dir: string
+    data_dir: string
+    asset_dir: string
+    asset_ttl_hours: number
+    asset_max_mb: number
+    backup_dir: string
+    backup_retention_days: number
+  }
+  feishu: {
+    mode: FeishuMode
+    app_id?: string
+    app_secret?: string
+    bot_id?: string
+  }
+  codex: {
+    base_url?: string
+    username?: string
+    password?: string
+    directory?: string
+    workspace?: string
+    agent?: string
+    model?: CodexModel
+  }
+}
+
+export type FeishuConn = {
+  start(): Promise<void>
+  stop(): Promise<void>
+}
+
+export type FeishuApi = {
+  send(input: { chat_id: string; out: RenderOut }): Promise<{ id: string }>
+  reply(input: { msg_id: string; out: RenderOut }): Promise<{ id: string }>
+  patch(input: { msg_id: string; out: RenderOut }): Promise<void>
+  fetch(input: { message_id: string; asset: Asset }): Promise<Asset>
+  sync(): Promise<void>
+  names(): string[]
+}
+
+export type Queue = {
+  push(input: Job): Promise<void>
+  start(): Promise<void>
+  stop(): Promise<void>
+}
+
+export type SessionSvc = {
+  current(input: { tenant_id: string; chat_id: string; thread_id?: string }): Promise<ImSession | null>
+  resolve(input: {
+    tenant_id: string
+    chat_id: string
+    chat_type?: ChatType
+    thread_id?: string
+    root_message_id?: string
+    user_id: string
+  }): Promise<ImSession>
+  reset(input: {
+    tenant_id: string
+    chat_id: string
+    chat_type?: ChatType
+    thread_id?: string
+    root_message_id?: string
+    user_id: string
+  }): Promise<ImSession>
+  switch(input: {
+    tenant_id: string
+    chat_id: string
+    chat_type?: ChatType
+    thread_id?: string
+    root_message_id?: string
+    user_id: string
+    session: CodexSession
+  }): Promise<ImSession>
+  bind(input: { session_id: string; directory?: string; workspace_id?: string }): Promise<ImSession | null>
+  model(input: { session_id: string; model?: CodexModel; mode?: SessionModelPref["mode"] }): Promise<ImSession | null>
+}
+
+export type TaskSvc = {
+  add(input: {
+    im_session_id: string
+    session_id: string
+    inbound_id: string
+    reply_anchor_message_id?: string
+    directory?: string
+    workspace_id?: string
+  }): Promise<Task>
+  rebind(input: {
+    id: string
+    im_session_id?: string
+    inbound_id: string
+    reply_anchor_message_id?: string
+    directory?: string
+    workspace_id?: string
+    clear_result_hash?: boolean
+  }): Promise<void>
+  ack(id: string): Promise<void>
+  run(id: string): Promise<void>
+  wait(input: { id: string; req_type: "permission" | "question"; req: string }): Promise<void>
+  hold(id: string): Promise<void>
+  checkpoint(input: { id: string; result_hash?: string; note?: string }): Promise<void>
+  close(input: {
+    id: string
+    status: "completed" | "failed" | "aborted"
+    terminal_kind?: TaskTerminalKind
+    terminal_outbound_id?: string
+    result_hash?: string
+    err?: string
+    note?: string
+  }): Promise<boolean>
+  supersede(input: { id: string; superseded_by_task_id: string }): Promise<void>
+  done(id: string, note?: string): Promise<void>
+  fail(input: { id: string; err: string; note?: string }): Promise<void>
+  abort(id: string, note?: string): Promise<void>
+  link(input: { id: string; outbound_id: string; status_outbound_id?: string }): Promise<void>
+  note(input: { id: string; note: string }): Promise<void>
+}
+
+export type CodexSvc = {
+  ensure(input: { directory?: string; workspace?: string; session_id?: string; model?: CodexModel }): Promise<{ id: string }>
+  session(id: string): Promise<CodexSession | null>
+  sessions(input: { directory?: string; workspace?: string; limit?: number; roots?: boolean }): Promise<CodexSession[]>
+  workspaces(input?: { directory?: string }): Promise<CodexWorkspace[]>
+  status(input: { directory?: string; workspace?: string }): Promise<Record<string, CodexStatus>>
+  commands(input?: { directory?: string; workspace?: string }): Promise<CodexCommand[]>
+  skills(input?: { directory?: string; workspace?: string }): Promise<CodexSkill[]>
+  agents(input?: { directory?: string; workspace?: string }): Promise<CodexAgent[]>
+  providers(input?: { directory?: string; workspace?: string }): Promise<CodexProvider[]>
+  mcps(input?: { directory?: string; workspace?: string }): Promise<CodexMcp[]>
+  prompt(input: {
+    session_id: string
+    text?: string
+    parts?: PromptPart[]
+    directory?: string
+    workspace?: string
+    agent?: string
+    model?: CodexModel
+  }): Promise<void>
+  abort(input: { session_id: string; directory?: string; workspace?: string }): Promise<void>
+  allow(input: { req: string; reply: "once" | "always" | "reject"; message?: string; directory?: string; workspace?: string }): Promise<void>
+  answer(input: { req: string; answers: string[][]; directory?: string; workspace?: string }): Promise<void>
+  reject(input: { req: string; directory?: string; workspace?: string }): Promise<void>
+  command(input: {
+    session_id: string
+    command: string
+    arguments: string
+    directory?: string
+    workspace?: string
+    model?: CodexModel
+  }): Promise<string | undefined>
+  result?(input: { session_id: string; directory?: string; workspace?: string }): Promise<CodexResult>
+  last(input: { session_id: string; directory?: string; workspace?: string }): Promise<string | undefined>
+}
+
+export type CodexEventSvc = {
+  start(): Promise<void>
+  stop(): Promise<void>
+}
+
+export type Render = {
+  ack(input: { text: string }): RenderOut
+  progress(input: { text: string; step?: string }): RenderOut
+  approval(input: { req: string; tool: string; detail: string }): RenderOut
+  question(input: { req: string; title: string; opts?: string[]; custom?: boolean }): RenderOut
+  intermediate(input: { text: string }): RenderOut
+  final(input: { text: string }): RenderOut
+  err(input: { text: string }): RenderOut
+}
+
+export type Store = {
+  get_session(input: { tenant_id: string; chat_id: string; thread_id?: string }): Promise<ImSession | null>
+  get_session_by_codex(session_id: string): Promise<ImSession | null>
+  save_session(input: ImSession): Promise<void>
+  get_session_model_pref(session_id: string): Promise<SessionModelPref | null>
+  save_session_model_pref(session_id: string, input: SessionModelPref): Promise<void>
+  move_session_model_pref(from_session_id: string, to_session_id: string): Promise<void>
+  get_pref(input: { scope: "chat" | "user"; tenant_id: string; chat_id?: string; user_id?: string }): Promise<RepoPref | null>
+  save_pref(input: RepoPref): Promise<void>
+  save_task(input: Task): Promise<void>
+  get_task(id: string): Promise<Task | null>
+  get_task_by_inbound(inbound_id: string): Promise<Task | null>
+  get_last_task(session_id: string): Promise<Task | null>
+  get_task_by_req(req: string): Promise<Task | null>
+  list_tasks(input?: { status?: Task["status"][]; session_id?: string; inbound_id?: string }): Promise<Task[]>
+  save_inbound(input: InboundEvent): Promise<void>
+  get_inbound(id: string): Promise<InboundEvent | null>
+  save_job(input: QueueJob): Promise<void>
+  get_job(id: string): Promise<QueueJob | null>
+  claim_job(): Promise<QueueJob | null>
+  done_job(id: string): Promise<void>
+  fail_job(input: { id: string; err?: string }): Promise<void>
+  reset_jobs(input: { from: QueueJob["status"][]; to: QueueJob["status"] }): Promise<void>
+  save_outbound(input: Outbound): Promise<void>
+  get_outbound(task_id: string): Promise<Outbound | null>
+  save_assistant_outbound(input: AssistantOutbound): Promise<void>
+  get_assistant_outbound(id: string): Promise<AssistantOutbound | null>
+  list_assistant_outbounds(task_id: string): Promise<AssistantOutbound[]>
+  list_open_waits(task_id: string): Promise<AssistantOutbound[]>
+  save_attachment(input: Attachment): Promise<void>
+  get_attachment(input: { message_id: string; key: string }): Promise<Attachment | null>
+  save_pending(input: Pending): Promise<void>
+  get_pending(session_id: string): Promise<Pending | null>
+  drop_pending(session_id: string): Promise<void>
+  save_task_pending(input: PendingAttachment): Promise<void>
+  get_task_pending(task_id: string): Promise<PendingAttachment | null>
+  drop_task_pending(task_id: string): Promise<void>
+  seen(key: string): Promise<boolean>
+  mark(key: string): Promise<void>
+  get_conn(name: ConnState["name"]): Promise<ConnState | null>
+  set_conn(input: ConnState): Promise<void>
+  close?(): Promise<void>
+}
+
+export type Gateway = {
+  on_msg(input: InboundEvent): Promise<void>
+}

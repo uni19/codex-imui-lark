@@ -1,0 +1,544 @@
+/// <reference types="bun-types" />
+import { describe, expect, test } from "bun:test"
+import { recover } from "../src/app/boot.ts"
+import type { AppCfg, FeishuApi, ImSession, InboundMessage, CodexResult, CodexStatus, CodexSvc, RenderOut, Task } from "../src/contracts.ts"
+import { createRender } from "../src/render/text.ts"
+import { createMemoryStore } from "../src/storage/db.ts"
+import { createTaskSvc } from "../src/gateway/task.ts"
+
+function cfg() {
+  return {
+    log: { level: "info" },
+    storage: { path: ":memory:" },
+    feishu: { mode: "off" },
+    codex: {
+      base_url: "http://127.0.0.1:4096",
+      username: "codex",
+      directory: "/tmp",
+    },
+  } satisfies AppCfg
+}
+
+function inbound(id: string): InboundMessage {
+  return {
+    id,
+    platform: "feishu",
+    kind: "message",
+    event_id: "evt_" + id,
+    tenant_id: "tenant",
+    chat_id: "chat",
+    user_id: "user",
+    raw: {},
+    created_at: 1,
+    text: "hello",
+    message_id: "msg_" + id,
+    assets: [],
+    mentions: [],
+  }
+}
+
+function session(id: string): ImSession {
+  return {
+    id: "ims_" + id,
+    platform: "feishu",
+    tenant_id: "tenant",
+    chat_id: "chat",
+    user_id: "user",
+    session_id: id,
+    directory: "/tmp",
+    state: "active",
+    created_at: 1,
+    updated_at: 1,
+  }
+}
+
+function task(id: string, session_id: string, inbound_id: string, status: Task["status"]): Task {
+  return {
+    id,
+    im_session_id: "ims_" + session_id,
+    session_id,
+    inbound_id,
+    status,
+    created_at: 1,
+    updated_at: 1,
+  }
+}
+
+function feishu() {
+  const list: Array<{ kind: "send" | "reply" | "patch"; out: RenderOut }> = []
+  return {
+    api: {
+      async send(input) {
+        list.push({ kind: "send", out: input.out })
+        return { id: "out_send" }
+      },
+      async reply(input) {
+        list.push({ kind: "reply", out: input.out })
+        return { id: "out_reply" }
+      },
+      async patch(input) {
+        list.push({ kind: "patch", out: input.out })
+      },
+      async fetch() {
+        throw new Error("not used")
+      },
+      async sync() {},
+      names() {
+        return []
+      },
+    } satisfies FeishuApi,
+    list,
+  }
+}
+
+function codex(input: { status?: Record<string, CodexStatus> | null; last?: string | undefined; result?: CodexResult }) {
+  return {
+    async ensure() {
+      return { id: "ses_1" }
+    },
+    async session() {
+      return null
+    },
+    async sessions() {
+      return []
+    },
+    async workspaces() {
+      return []
+    },
+    async status(_input: { directory?: string; workspace?: string }): Promise<Record<string, CodexStatus>> {
+      if (input.status === null) throw new Error("status failed")
+      return input.status ?? {}
+    },
+    async commands() {
+      return []
+    },
+    async skills() {
+      return []
+    },
+    async agents() {
+      return []
+    },
+    async providers() {
+      return []
+    },
+    async mcps() {
+      return []
+    },
+    async prompt() {},
+    async abort() {},
+    async allow() {},
+    async answer() {},
+    async reject() {},
+    async command() {
+      return undefined
+    },
+    async last(_input: { session_id: string; directory?: string; workspace?: string }): Promise<string | undefined> {
+      return input.last
+    },
+    async result(_input: { session_id: string; directory?: string; workspace?: string }): Promise<CodexResult> {
+      return input.result ?? (input.last ? { state: "ok", text: input.last } : { state: "empty" })
+    },
+  } satisfies CodexSvc
+}
+
+describe("recover", () => {
+  test("fails waiting_attachment when pending context is missing", async () => {
+    const store = createMemoryStore()
+    const svc = createTaskSvc(store)
+    const ui = feishu()
+    const ses = session("ses_1")
+    await store.save_session(ses)
+    await store.save_inbound(inbound("in_1"))
+    await store.save_task(task("tsk_1", ses.session_id, "in_1", "waiting_attachment"))
+
+    await recover(cfg(), store, svc, ui.api, createRender(), codex({}), "boot")
+
+    expect((await store.get_task("tsk_1"))?.status).toBe("failed")
+    expect(await store.get_task_pending("tsk_1")).toBeNull()
+    expect(ui.list[ui.list.length - 1]?.out).toMatchObject({
+      kind: "card",
+      body: {
+        template: "red",
+      },
+    })
+  })
+
+  test("fails waiting_attachment when cached assets are no longer usable", async () => {
+    const store = createMemoryStore()
+    const svc = createTaskSvc(store)
+    const ui = feishu()
+    const ses = session("ses_bad")
+    await store.save_session(ses)
+    await store.save_inbound(inbound("in_bad"))
+    await store.save_task(task("tsk_bad", ses.session_id, "in_bad", "waiting_attachment"))
+    await store.save_task_pending({
+      task_id: "tsk_bad",
+      session_id: ses.session_id,
+      origin_inbound_id: "in_bad",
+      origin_message_id: "msg_in_bad",
+      assets: [
+        {
+          kind: "image",
+          key: "img_bad",
+          name: "broken.png",
+        },
+      ],
+      created_at: 1,
+      updated_at: 1,
+    })
+
+    await recover(cfg(), store, svc, ui.api, createRender(), codex({}), "boot")
+
+    expect((await store.get_task("tsk_bad"))?.status).toBe("failed")
+    expect(await store.get_task_pending("tsk_bad")).toBeNull()
+    expect(ui.list[ui.list.length - 1]?.out).toMatchObject({
+      kind: "card",
+      body: {
+        template: "red",
+        text: "出错了：服务恢复后，附件缓存已失效，请重新发送附件和说明。",
+      },
+    })
+  })
+
+  test("promotes queued task to running when remote session is still busy", async () => {
+    const store = createMemoryStore()
+    const svc = createTaskSvc(store)
+    const ui = feishu()
+    const ses = session("ses_2")
+    await store.save_session(ses)
+    await store.save_inbound(inbound("in_2"))
+    await store.save_task(task("tsk_2", ses.session_id, "in_2", "queued"))
+
+    await recover(
+      cfg(),
+      store,
+      svc,
+      ui.api,
+      createRender(),
+      codex({
+        status: {
+          [ses.session_id]: { type: "busy" },
+        },
+      }),
+      "boot",
+    )
+
+    expect((await store.get_task("tsk_2"))?.status).toBe("running")
+    expect(ui.list[ui.list.length - 1]?.out).toMatchObject({
+      kind: "card",
+      body: {
+        template: "blue",
+      },
+    })
+  })
+
+  test("restores waiting permission card when remote session is still busy", async () => {
+    const store = createMemoryStore()
+    const svc = createTaskSvc(store)
+    const ui = feishu()
+    const ses = session("ses_4")
+    await store.save_session(ses)
+    await store.save_inbound(inbound("in_4"))
+    await store.save_task({
+      ...task("tsk_4", ses.session_id, "in_4", "waiting_permission"),
+      req: "req_4",
+      note: `approval:${encodeURIComponent("external_directory")}:${encodeURIComponent('{"filepath":"/tmp"}')}`,
+    })
+
+    await recover(
+      cfg(),
+      store,
+      svc,
+      ui.api,
+      createRender(),
+      codex({
+        status: {
+          [ses.session_id]: { type: "busy" },
+        },
+      }),
+      "boot",
+    )
+
+    expect((await store.get_task("tsk_4"))?.status).toBe("waiting_permission")
+    expect(ui.list[ui.list.length - 1]?.out).toMatchObject({
+      kind: "card",
+      body: {
+        type: "approval",
+        req: "req_4",
+        tool: "external_directory",
+      },
+    })
+  })
+
+  test("keeps background waiting permission hidden during recover", async () => {
+    const store = createMemoryStore()
+    const svc = createTaskSvc(store)
+    const ui = feishu()
+    await store.save_session(session("ses_front"))
+    await store.save_inbound(inbound("in_bg"))
+    await store.save_task({
+      ...task("tsk_bg", "ses_bg", "in_bg", "waiting_permission"),
+      req: "req_bg",
+      note: `approval:${encodeURIComponent("external_directory")}:${encodeURIComponent('{"filepath":"/tmp"}')}`,
+    })
+
+    await recover(
+      cfg(),
+      store,
+      svc,
+      ui.api,
+      createRender(),
+      codex({
+        status: {
+          ses_bg: { type: "busy" },
+        },
+      }),
+      "boot",
+    )
+
+    expect((await store.get_task("tsk_bg"))?.status).toBe("waiting_permission")
+    expect(ui.list).toEqual([])
+  })
+
+  test("fails stale waiting question when remote session is no longer busy", async () => {
+    const store = createMemoryStore()
+    const svc = createTaskSvc(store)
+    const ui = feishu()
+    const ses = session("ses_5")
+    await store.save_session(ses)
+    await store.save_inbound(inbound("in_5"))
+    await store.save_task({
+      ...task("tsk_5", ses.session_id, "in_5", "waiting_question"),
+      req: "req_5",
+      note: `question:1:${encodeURIComponent("请选择")}:${encodeURIComponent("A")}|${encodeURIComponent("B")}`,
+    })
+
+    await recover(cfg(), store, svc, ui.api, createRender(), codex({}), "boot")
+
+    expect((await store.get_task("tsk_5"))?.status).toBe("failed")
+    expect(ui.list[ui.list.length - 1]?.out).toMatchObject({
+      kind: "card",
+      body: {
+        template: "red",
+      },
+    })
+  })
+
+  test("keeps waiting question pending when remote status probe fails", async () => {
+    const store = createMemoryStore()
+    const svc = createTaskSvc(store)
+    const ui = feishu()
+    const ses = session("ses_5b")
+    await store.save_session(ses)
+    await store.save_inbound(inbound("in_5b"))
+    await store.save_task({
+      ...task("tsk_5b", ses.session_id, "in_5b", "waiting_question"),
+      req: "req_5b",
+      note: `question:1:${encodeURIComponent("请选择")}:${encodeURIComponent("A")}|${encodeURIComponent("B")}`,
+    })
+
+    await recover(cfg(), store, svc, ui.api, createRender(), codex({ status: null }), "boot")
+
+    expect((await store.get_task("tsk_5b"))?.status).toBe("waiting_question")
+    expect(ui.list[ui.list.length - 1]?.out).toBeUndefined()
+  })
+
+  test("shows connecting hint during boot when codex is not ready yet", async () => {
+    const store = createMemoryStore()
+    const svc = createTaskSvc(store)
+    const ui = feishu()
+    const ses = session("ses_connecting")
+    await store.save_session(ses)
+    await store.save_inbound(inbound("in_connecting"))
+    await store.save_task(task("tsk_connecting", ses.session_id, "in_connecting", "running"))
+    await store.set_conn({
+      name: "codex",
+      status: "connecting",
+      updated_at: 1,
+    })
+
+    await recover(cfg(), store, svc, ui.api, createRender(), codex({ status: null }), "boot")
+
+    expect((await store.get_task("tsk_connecting"))?.status).toBe("running")
+    expect(ui.list[ui.list.length - 1]?.out).toMatchObject({
+      kind: "card",
+      body: {
+        template: "blue",
+        text: "Codex 正在建立连接，稍后会继续同步执行状态…",
+      },
+    })
+  })
+
+  test("shows connecting hint during boot before codex conn state is known", async () => {
+    const store = createMemoryStore()
+    const svc = createTaskSvc(store)
+    const ui = feishu()
+    const ses = session("ses_boot")
+    await store.save_session(ses)
+    await store.save_inbound(inbound("in_boot"))
+    await store.save_task(task("tsk_boot", ses.session_id, "in_boot", "running"))
+
+    await recover(cfg(), store, svc, ui.api, createRender(), codex({ status: null }), "boot")
+
+    expect((await store.get_task("tsk_boot"))?.status).toBe("running")
+    expect(ui.list[ui.list.length - 1]?.out).toMatchObject({
+      kind: "card",
+      body: {
+        template: "blue",
+        text: "Codex 正在建立连接，稍后会继续同步执行状态…",
+      },
+    })
+  })
+
+  test("checkpoints running task on first non-busy recover and settles on repeated identical output", async () => {
+    const store = createMemoryStore()
+    const svc = createTaskSvc(store)
+    const ui = feishu()
+    const render = createRender()
+    const ses = session("ses_3")
+    await store.save_session(ses)
+    await store.save_inbound(inbound("in_3"))
+    await store.save_task(task("tsk_3", ses.session_id, "in_3", "running"))
+
+    await recover(
+      cfg(),
+      store,
+      svc,
+      ui.api,
+      render,
+      codex({
+        status: {},
+        last: "final answer",
+      }),
+      "boot",
+    )
+
+    const checkpointed = await store.get_task("tsk_3")
+    expect(checkpointed?.status).toBe("running")
+    expect(typeof checkpointed?.result_hash).toBe("string")
+    expect(checkpointed?.terminal_kind).toBeUndefined()
+    expect(checkpointed?.terminal_outbound_id).toBeUndefined()
+    expect(ui.list).toEqual([
+      {
+        kind: "reply",
+        out: render.intermediate({ text: "final answer" }),
+      },
+    ])
+
+    await recover(
+      cfg(),
+      store,
+      svc,
+      ui.api,
+      render,
+      codex({
+        status: {},
+        result: {
+          state: "ok",
+          text: "final answer",
+          completed: true,
+        },
+      }),
+      "boot",
+    )
+
+    const settled = await store.get_task("tsk_3")
+    expect(settled).toMatchObject({
+      status: "completed",
+      terminal_kind: "final",
+      terminal_outbound_id: "out_reply",
+    })
+    expect(settled?.result_hash).toBe(checkpointed?.result_hash)
+    expect(ui.list.map((item) => item.kind)).toEqual(["reply", "reply", "patch"])
+    expect(ui.list[ui.list.length - 2]?.out).toEqual(render.final({ text: "final answer" }))
+    expect(ui.list[ui.list.length - 1]).toMatchObject({
+      kind: "patch",
+      out: {
+        kind: "card",
+        body: {
+          title: "最终已完成",
+          template: "green",
+          state: "final",
+          text: "请查看下方最终答复",
+        },
+      },
+    })
+  })
+
+  test("checkpoints fallback running task on first non-busy recover and settles on repeated identical output", async () => {
+    const store = createMemoryStore()
+    const svc = createTaskSvc(store)
+    const ui = feishu()
+    const render = createRender()
+    await store.save_inbound(inbound("in_fallback"))
+    await store.save_task({
+      ...task("tsk_fallback", "ses_fallback", "in_fallback", "running"),
+      directory: "/tmp/fallback",
+      workspace_id: "ws_fallback",
+    })
+
+    await recover(
+      cfg(),
+      store,
+      svc,
+      ui.api,
+      render,
+      codex({
+        status: {},
+        last: "fallback done",
+      }),
+      "boot",
+    )
+
+    const checkpointed = await store.get_task("tsk_fallback")
+    expect(checkpointed?.status).toBe("running")
+    expect(typeof checkpointed?.result_hash).toBe("string")
+    expect(checkpointed?.terminal_kind).toBeUndefined()
+    expect(checkpointed?.terminal_outbound_id).toBeUndefined()
+    expect(ui.list).toEqual([
+      {
+        kind: "reply",
+        out: render.intermediate({ text: "fallback done" }),
+      },
+    ])
+
+    await recover(
+      cfg(),
+      store,
+      svc,
+      ui.api,
+      render,
+      codex({
+        status: {},
+        result: {
+          state: "ok",
+          text: "fallback done",
+          completed: true,
+        },
+      }),
+      "boot",
+    )
+
+    const settled = await store.get_task("tsk_fallback")
+    expect(settled).toMatchObject({
+      status: "completed",
+      terminal_kind: "final",
+      terminal_outbound_id: "out_reply",
+    })
+    expect(settled?.result_hash).toBe(checkpointed?.result_hash)
+    expect(ui.list.map((item) => item.kind)).toEqual(["reply", "reply", "patch"])
+    expect(ui.list[ui.list.length - 2]?.out).toEqual(render.final({ text: "fallback done" }))
+    expect(ui.list[ui.list.length - 1]).toMatchObject({
+      kind: "patch",
+      out: {
+        kind: "card",
+        body: {
+          title: "最终已完成",
+          template: "green",
+          state: "final",
+          text: "请查看下方最终答复",
+        },
+      },
+    })
+  })
+})

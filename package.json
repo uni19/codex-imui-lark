@@ -1,0 +1,27 @@
+{
+  "name": "codex-feishu-imui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/app/main.ts",
+    "start": "bun src/app/main.ts",
+    "release:build": "bun src/release/package.ts",
+    "release:check": "bun src/release/check.ts",
+    "release:doctor": "bun src/release/doctor.ts",
+    "release:gate": "bun src/release/gate.ts",
+    "release:smoke": "bun src/release/smoke.ts",
+    "db:backup": "bun src/release/db.ts backup",
+    "db:migrate": "bun src/release/db.ts migrate",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.36.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.13",
+    "@types/node": "^24.6.1",
+    "typescript": "^5.9.3"
+  }
+}

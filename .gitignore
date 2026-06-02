@@ -1,0 +1,10 @@
+node_modules
+dist
+.DS_Store
+.env
+.data
+*.log
+coverage
+.cache
+tmp
+.codex
