@@ -21,6 +21,65 @@ function state(status: ConnState["status"], err?: string, attempt?: number): Con
   }
 }
 
+type WsLogDiagnostic = {
+  text: string
+  err?: string
+  endpoint_error?: boolean
+  suppress?: boolean
+}
+
+function wsEndpoint(base?: string) {
+  if (!base) return "飞书长连接 endpoint"
+  return `${base.replace(/\/+$/, "")}/callback/ws/endpoint`
+}
+
+export function diagnoseFeishuWsLog(
+  args: unknown[],
+  input: { ws_base_url?: string; recent_endpoint_error?: boolean } = {},
+): WsLogDiagnostic {
+  const text = args.map(String).join(" ")
+  const code = text.match(/code:\s*(\d+)/)?.[1]
+  if (code) {
+    if (code === "1000040350") {
+      return {
+        text,
+        endpoint_error: true,
+        err: `${wsEndpoint(input.ws_base_url)} 返回 ${code}：长连接数超过限制，请关闭重复运行的进程或稍后重试。`,
+      }
+    }
+    if (code === "403" || code === "514") {
+      return {
+        text,
+        endpoint_error: true,
+        err: `${wsEndpoint(input.ws_base_url)} 返回 ${code}：应用鉴权失败，请检查 FEISHU_APP_ID/FEISHU_APP_SECRET 以及长连接事件订阅配置。`,
+      }
+    }
+    if (code !== "0") {
+      return {
+        text,
+        endpoint_error: true,
+        err: `${wsEndpoint(input.ws_base_url)} 返回 ${code}：请确认 FEISHU_API_BASE_URL/FEISHU_WS_BASE_URL 与应用所属区域一致；飞书中国区通常使用 https://open.feishu.cn，Lark Global 使用 https://open.larksuite.com。`,
+      }
+    }
+  }
+
+  if (text.includes("ClientConfig.PingInterval")) {
+    if (input.recent_endpoint_error) {
+      return { text, suppress: true }
+    }
+    return {
+      text,
+      err: `${wsEndpoint(input.ws_base_url)} 响应缺少 ClientConfig.PingInterval，请检查长连接 endpoint 返回内容。`,
+    }
+  }
+
+  if (input.recent_endpoint_error && text.includes("connect failed")) {
+    return { text, suppress: true }
+  }
+
+  return { text }
+}
+
 export function createFeishuConn(input: Input): FeishuConn {
   let rl: readline.Interface | undefined
   let stop: (() => Promise<void>) | undefined
@@ -52,6 +111,8 @@ export function createFeishuConn(input: Input): FeishuConn {
         }
 
         const Lark = await import("@larksuiteoapi/node-sdk")
+        let lastEndpointErrorAt = 0
+        const recentEndpointError = () => lastEndpointErrorAt > 0 && Date.now() - lastEndpointErrorAt < 5000
         const logger = {
           trace: () => undefined,
           debug: (...args: unknown[]) => {
@@ -66,6 +127,7 @@ export function createFeishuConn(input: Input): FeishuConn {
           info: (...args: unknown[]) => {
             const text = args.map(String).join(" ")
             if (text.includes("ws client ready")) {
+              if (recentEndpointError()) return
               count = 0
               save(state("ready")).catch((err) => {
                 console.error("[feishu.conn]", err)
@@ -83,11 +145,19 @@ export function createFeishuConn(input: Input): FeishuConn {
             console.warn(...args)
           },
           error: (...args: unknown[]) => {
-            const text = args.map(String).join(" ")
-            save(state("error", text, count || undefined)).catch((err) => {
+            const diagnostic = diagnoseFeishuWsLog(args, {
+              ws_base_url: input.ws_base_url,
+              recent_endpoint_error: recentEndpointError(),
+            })
+            if (diagnostic.endpoint_error) lastEndpointErrorAt = Date.now()
+            if (diagnostic.suppress) return
+
+            const errText = diagnostic.err ?? diagnostic.text
+            save(state("error", errText, count || undefined)).catch((err) => {
               console.error("[feishu.conn]", err)
             })
-            console.error(...args)
+            if (diagnostic.err) console.error("[feishu.conn]", diagnostic.err)
+            else console.error(...args)
           },
         }
         const ws = new Lark.WSClient({
