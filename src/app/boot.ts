@@ -4615,6 +4615,7 @@ export function createApp(conf = cfg()): App {
     app_id: conf.feishu.app_id,
     app_secret: conf.feishu.app_secret,
     ws_base_url: conf.feishu.ws_base_url,
+    ws_endpoint_url: conf.feishu.ws_endpoint_url,
     on_msg: gateway.on_msg,
     on_state: async (item) => {
       const prev = msgstate

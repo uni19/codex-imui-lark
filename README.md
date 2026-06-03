@@ -180,6 +180,7 @@ Feishu Open Platform
 - `FEISHU_BOT_OPEN_ID`: 可选；显式指定 bot open id，群聊首条 `@bot` 判断会更稳定
 - `FEISHU_API_BASE_URL`: 可选；飞书 OpenAPI 根地址，默认 `https://open.feishu.cn/open-apis`
 - `FEISHU_WS_BASE_URL`: 可选；飞书长连接 SDK domain，默认从 `FEISHU_API_BASE_URL` 推导，例如 `https://open.feishu.cn/open-apis` 会推导为 `https://open.feishu.cn`
+- `FEISHU_WS_ENDPOINT_URL`: 可选；飞书长连接 endpoint 完整 URL，默认是 `FEISHU_WS_BASE_URL + /callback/ws/endpoint`；内部网关或私有化环境可显式覆盖
 - `CODEX_BASE_URL` / `CODEX_USERNAME` / `CODEX_PASSWORD`: 兼容旧配置；当前 app-server 适配通常不使用
 - `CODEX_DIRECTORY`: 默认工作目录
 - `CODEX_WORKSPACE`: 默认远端 workspace；仅在远端场景下需要，必须使用 `wrk*` ID，本地项目通常留空
@@ -208,6 +209,7 @@ FEISHU_BOT_OPEN_ID=ou_xxx
 # 默认可省略；Lark global 可改为 https://open.larksuite.com/open-apis，长连接 domain 会自动跟随为 https://open.larksuite.com
 FEISHU_API_BASE_URL=https://open.feishu.cn/open-apis
 FEISHU_WS_BASE_URL=
+FEISHU_WS_ENDPOINT_URL=
 CODEX_DIRECTORY=/absolute/path/to/your/working-directory
 ```
 
@@ -216,6 +218,7 @@ CODEX_DIRECTORY=/absolute/path/to/your/working-directory
 - `FEISHU_BOT_OPEN_ID` 不是强制项，但建议配置，能减少群聊首条 `@bot` 判断歧义
 - `FEISHU_API_BASE_URL` 默认是飞书中国区 OpenAPI；如需接 Lark global，可配置为 `https://open.larksuite.com/open-apis`
 - `FEISHU_WS_BASE_URL` 默认从 `FEISHU_API_BASE_URL` 自动推导并传给 `@larksuiteoapi/node-sdk`；私有化或代理环境可显式覆盖
+- `FEISHU_WS_ENDPOINT_URL` 默认从 `FEISHU_WS_BASE_URL` 拼出 `/callback/ws/endpoint`；如 OpenAPI 和长连接 endpoint 不同源，可显式配置完整 endpoint。注意：它不是最终 WSS 网关，最终 WebSocket URL 始终使用 endpoint 返回的 `data.URL`
 - `CODEX_DIRECTORY` 表示默认工作目录，不要求是 Git worktree；当前 app-server 适配以本地目录线程为主，`CODEX_WORKSPACE` 通常留空
 - 如果不填 `FEISHU_BOT_OPEN_ID`，服务会回退到按应用名称匹配 mention
 - 真实飞书联调前，请先跑完自动化测试，再按发布清单逐项手工验证

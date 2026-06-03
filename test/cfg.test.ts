@@ -31,14 +31,20 @@ test("cfg normalizes invalid codex workspace env to undefined", () => {
 test("cfg exposes configurable Feishu endpoints with default OpenAPI base", () => {
   expect(cfg().feishu.api_base_url).toBe("https://open.feishu.cn/open-apis")
   expect(cfg().feishu.ws_base_url).toBe("https://open.feishu.cn")
+  expect(cfg().feishu.ws_endpoint_url).toBe("https://open.feishu.cn/callback/ws/endpoint")
 
   process.env.FEISHU_API_BASE_URL = "https://open.larksuite.com/open-apis"
 
   expect(cfg().feishu).toMatchObject({
     api_base_url: "https://open.larksuite.com/open-apis",
     ws_base_url: "https://open.larksuite.com",
+    ws_endpoint_url: "https://open.larksuite.com/callback/ws/endpoint",
   })
 
   process.env.FEISHU_WS_BASE_URL = "https://custom-feishu.example.com"
   expect(cfg().feishu.ws_base_url).toBe("https://custom-feishu.example.com")
+  expect(cfg().feishu.ws_endpoint_url).toBe("https://custom-feishu.example.com/callback/ws/endpoint")
+
+  process.env.FEISHU_WS_ENDPOINT_URL = "https://custom-feishu.example.com/custom/ws/endpoint"
+  expect(cfg().feishu.ws_endpoint_url).toBe("https://custom-feishu.example.com/custom/ws/endpoint")
 })

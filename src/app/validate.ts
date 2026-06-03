@@ -51,6 +51,10 @@ export function validateAppCfg(conf: AppCfg, env: NodeJS.ProcessEnv = process.en
     add(errors, "FEISHU_WS_BASE_URL 必须是 http(s) URL，且不能包含 query/hash。")
   }
 
+  if (!validBaseURL(conf.feishu.ws_endpoint_url)) {
+    add(errors, "FEISHU_WS_ENDPOINT_URL 必须是 http(s) URL，且不能包含 query/hash。")
+  }
+
 
   if (env.CODEX_MODEL && !conf.codex.model) {
     add(errors, "CODEX_MODEL 格式应为 [<provider>/]<model_id>[@<variant>]。")

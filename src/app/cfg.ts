@@ -77,12 +77,22 @@ export function feishuWsBaseUrl(input: { api_base_url?: string; ws_base_url?: st
   }
 }
 
+export function feishuWsEndpointUrl(input: { ws_base_url?: string; ws_endpoint_url?: string }) {
+  if (input.ws_endpoint_url?.trim()) return input.ws_endpoint_url
+  if (!input.ws_base_url) return
+  return `${input.ws_base_url.replace(/\/+$/, "")}/callback/ws/endpoint`
+}
+
 export function cfg(): AppCfg {
   const config_dir = base()
   const data_dir = data()
   const asset_dir = runtimeDir(process.env.IMUI_ASSET_CACHE_DIR, data_dir, path.join(data_dir, "asset"))
   const backup_dir = runtimeDir(process.env.IMUI_BACKUP_DIR, data_dir, path.join(data_dir, "backup"))
   const api_base_url = feishuApiBaseUrl()
+  const ws_base_url = feishuWsBaseUrl({
+    api_base_url,
+    ws_base_url: process.env.FEISHU_WS_BASE_URL,
+  })
 
   return {
     log: {
@@ -109,9 +119,10 @@ export function cfg(): AppCfg {
       app_secret: process.env.FEISHU_APP_SECRET,
       bot_id: process.env.FEISHU_BOT_OPEN_ID,
       api_base_url,
-      ws_base_url: feishuWsBaseUrl({
-        api_base_url,
-        ws_base_url: process.env.FEISHU_WS_BASE_URL,
+      ws_base_url,
+      ws_endpoint_url: feishuWsEndpointUrl({
+        ws_base_url,
+        ws_endpoint_url: process.env.FEISHU_WS_ENDPOINT_URL,
       }),
     },
     codex: {
