@@ -178,6 +178,23 @@ export type Outbound = {
   updated_at: number
 }
 
+export type OutboundTxn = {
+  id: string
+  task_id: string
+  session_id: string
+  action: "send" | "reply" | "patch"
+  target_msg_id: string
+  remote_msg_id?: string
+  out: RenderOut
+  meta?: {
+    kind: "ack" | "progress" | "attachment" | "intermediate" | "final" | "error"
+    terminal?: boolean
+  }
+  state: "preparing" | "remote_done"
+  created_at: number
+  updated_at: number
+}
+
 export type Attachment = {
   message_id: string
   key: string
@@ -526,6 +543,10 @@ export type Store = {
   reset_jobs(input: { from: QueueJob["status"][]; to: QueueJob["status"] }): Promise<void>
   save_outbound(input: Outbound): Promise<void>
   get_outbound(task_id: string): Promise<Outbound | null>
+  save_outbound_txn(input: OutboundTxn): Promise<void>
+  get_outbound_txn(id: string): Promise<OutboundTxn | null>
+  list_outbound_txns(state?: OutboundTxn["state"]): Promise<OutboundTxn[]>
+  drop_outbound_txn(id: string): Promise<void>
   save_assistant_outbound(input: AssistantOutbound): Promise<void>
   get_assistant_outbound(id: string): Promise<AssistantOutbound | null>
   list_assistant_outbounds(task_id: string): Promise<AssistantOutbound[]>

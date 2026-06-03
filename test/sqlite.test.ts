@@ -9,6 +9,7 @@ import type {
   ImSession,
   InboundMessage,
   Outbound,
+  OutboundTxn,
   Pending,
   PendingAttachment,
   QueueJob,
@@ -102,6 +103,26 @@ describe("sqlite store", () => {
       created_at: 1,
       updated_at: 2,
     } satisfies Outbound
+    const outboundTxn = {
+      id: "otx_1",
+      task_id: row.id,
+      session_id: row.session_id,
+      action: "patch",
+      target_msg_id: "out_1",
+      out: {
+        kind: "card",
+        body: {
+          title: "Patched",
+        },
+      },
+      meta: {
+        kind: "final",
+        terminal: true,
+      },
+      state: "remote_done",
+      created_at: 2,
+      updated_at: 3,
+    } satisfies OutboundTxn
     const firstAssistantOutbound = {
       id: "aso_1",
       task_id: row.id,
@@ -210,6 +231,7 @@ describe("sqlite store", () => {
     await a.save_inbound(inbound())
     await a.save_task(row)
     await a.save_outbound(out)
+    await a.save_outbound_txn(outboundTxn)
     await a.save_assistant_outbound(secondAssistantOutbound)
     await a.save_assistant_outbound(firstAssistantOutbound)
     await a.save_assistant_outbound(thirdAssistantOutbound)
@@ -233,6 +255,8 @@ describe("sqlite store", () => {
     expect(await b.get_task_by_inbound("in_1")).toMatchObject(row)
     expect(await b.get_task_by_req("req_1")).toMatchObject(row)
     expect(await b.get_outbound("tsk_1")).toMatchObject(out)
+    expect(await b.get_outbound_txn("otx_1")).toMatchObject(outboundTxn)
+    expect(await b.list_outbound_txns("remote_done")).toMatchObject([outboundTxn])
     expect(await b.get_assistant_outbound("aso_2")).toMatchObject(secondAssistantOutbound)
     expect(await b.get_assistant_outbound("aso_3")).toMatchObject(thirdAssistantOutbound)
     expect(await b.list_assistant_outbounds("tsk_1")).toMatchObject([
@@ -247,6 +271,8 @@ describe("sqlite store", () => {
     expect(await b.get_job("in_1")).toMatchObject(job)
     expect(await b.get_conn("codex")).toMatchObject(conn)
     expect(await b.seen("evt_1")).toBe(true)
+    await b.drop_outbound_txn("otx_1")
+    expect(await b.get_outbound_txn("otx_1")).toBeNull()
     await b.close?.()
   })
 

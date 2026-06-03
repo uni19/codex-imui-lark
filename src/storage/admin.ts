@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises"
 import path from "node:path"
 import { Database } from "bun:sqlite"
 
-export const DB_SCHEMA_VERSION = 3
+export const DB_SCHEMA_VERSION = 4
 
 function ensure(file: string) {
   if (file === ":memory:") return file
@@ -86,6 +86,19 @@ export function schema(db: Database) {
       task_id TEXT PRIMARY KEY,
       data TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS outbound_txn (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      state TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      data TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS outbound_txn_state_idx
+    ON outbound_txn (state, created_at);
 
     CREATE TABLE IF NOT EXISTS assistant_outbound (
       id TEXT PRIMARY KEY,

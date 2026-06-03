@@ -5,6 +5,7 @@ import type {
   ImSession,
   InboundEvent,
   Outbound,
+  OutboundTxn,
   Pending,
   PendingAttachment,
   QueueJob,
@@ -71,6 +72,7 @@ export function createMemoryStore(): Store {
   const inboundEvents = new Map<string, InboundEvent>()
   const jobs = new Map<string, QueueJob>()
   const outboundByTaskId = new Map<string, Outbound>()
+  const outboundTxnById = new Map<string, OutboundTxn>()
   const assistantOutboundById = new Map<string, AssistantOutbound>()
   const attachments = new Map<string, Attachment>()
   const legacyPendingBySessionId = new Map<string, Pending>()
@@ -231,6 +233,24 @@ export function createMemoryStore(): Store {
 
     async get_outbound(task_id) {
       return outboundByTaskId.get(task_id) ?? null
+    },
+
+    async save_outbound_txn(input) {
+      outboundTxnById.set(input.id, input)
+    },
+
+    async get_outbound_txn(id) {
+      return outboundTxnById.get(id) ?? null
+    },
+
+    async list_outbound_txns(state) {
+      const rows = [...outboundTxnById.values()].filter((item) => !state || item.state === state)
+      rows.sort((a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id))
+      return rows
+    },
+
+    async drop_outbound_txn(id) {
+      outboundTxnById.delete(id)
     },
 
     async save_assistant_outbound(input) {
@@ -431,6 +451,29 @@ export function createSqliteStore(file: string): Store {
   const getOutboundStmt = db.query<{ data: string }, [string]>(
     "select data from outbound_message where task_id = ?1 limit 1",
   )
+  const saveOutboundTxnStmt = db.query(
+    `
+      insert into outbound_txn (id, task_id, session_id, state, created_at, updated_at, data)
+      values (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+      on conflict(id) do update set
+        task_id = excluded.task_id,
+        session_id = excluded.session_id,
+        state = excluded.state,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at,
+        data = excluded.data
+    `,
+  )
+  const getOutboundTxnStmt = db.query<{ data: string }, [string]>(
+    "select data from outbound_txn where id = ?1 limit 1",
+  )
+  const listOutboundTxnsStmt = db.query<{ data: string }, []>(
+    "select data from outbound_txn order by created_at asc",
+  )
+  const listOutboundTxnsByStateStmt = db.query<{ data: string }, [string]>(
+    "select data from outbound_txn where state = ?1 order by created_at asc",
+  )
+  const dropOutboundTxnStmt = db.query("delete from outbound_txn where id = ?1")
   const saveAssistantOutboundStmt = db.query(
     `
       insert into assistant_outbound (
@@ -720,6 +763,24 @@ export function createSqliteStore(file: string): Store {
 
     async get_outbound(task_id) {
       return parse<Outbound>(getOutboundStmt.get(task_id)?.data ?? null)
+    },
+
+    async save_outbound_txn(input) {
+      if (!live) return
+      saveOutboundTxnStmt.run(input.id, input.task_id, input.session_id, input.state, input.created_at, input.updated_at, text(input))
+    },
+
+    async get_outbound_txn(id) {
+      return parse<OutboundTxn>(getOutboundTxnStmt.get(id)?.data ?? null)
+    },
+
+    async list_outbound_txns(state) {
+      return parseRows<OutboundTxn>(state ? listOutboundTxnsByStateStmt.all(state) : listOutboundTxnsStmt.all())
+    },
+
+    async drop_outbound_txn(id) {
+      if (!live) return
+      dropOutboundTxnStmt.run(id)
     },
 
     async save_assistant_outbound(input) {

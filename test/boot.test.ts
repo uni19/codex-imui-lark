@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 import { describe, expect, test } from "bun:test"
-import { body, guide, holdmsg, moremsg, on_cmd, on_conn, on_msg, publish, recover, status_text } from "../src/app/boot.ts"
+import { body, guide, holdmsg, moremsg, on_cmd, on_conn, on_msg, publish, recover, recover_outbound_txns, status_text } from "../src/app/boot.ts"
 import type { AppCfg, ConnState, FeishuApi, ImSession, InboundMessage, CodexResult, CodexSession, CodexStatus, CodexSvc, RenderOut, SessionSvc, Task } from "../src/contracts.ts"
 import { createSessionSvc } from "../src/gateway/session.ts"
 import { createTaskSvc } from "../src/gateway/task.ts"
@@ -2493,6 +2493,154 @@ describe("publish", () => {
       expect((await store.get_task("tsk_1"))?.status_outbound_id, scenario.name).toBe("out_old")
       expect((await store.get_outbound("tsk_1"))?.msg_id, scenario.name).toBe("out_old")
     }
+  })
+
+  test("recovers a remote-done patch transaction without sending again", async () => {
+    const store = createMemoryStore()
+    const task = createTaskSvc(store)
+    await store.save_inbound(inbound())
+    await store.save_task(
+      row({
+        outbound_id: "out_old",
+      }),
+    )
+    await store.save_outbound_txn({
+      id: "otx_1",
+      task_id: "tsk_1",
+      session_id: "ses_1",
+      action: "patch",
+      target_msg_id: "out_old",
+      out: {
+        kind: "card",
+        body: {
+          title: "Codex",
+          template: "green",
+          text: "done",
+        },
+      },
+      meta: {
+        kind: "final",
+        terminal: true,
+      },
+      state: "remote_done",
+      created_at: 1,
+      updated_at: 2,
+    })
+
+    await recover_outbound_txns(store, task)
+
+    expect(await store.get_outbound_txn("otx_1")).toBeNull()
+    expect(await store.get_outbound("tsk_1")).toMatchObject({
+      msg_id: "out_old",
+      kind: "card",
+    })
+    const history = await store.list_assistant_outbounds("tsk_1")
+    expect(history).toHaveLength(1)
+    expect(history[0]).toMatchObject({
+      task_id: "tsk_1",
+      session_id: "ses_1",
+      kind: "final",
+      action: "patch",
+      state: "emitted",
+      terminal: true,
+      feishu_message_id: "out_old",
+    })
+  })
+
+  test("recovers a remote-done reply transaction without sending again", async () => {
+    const store = createMemoryStore()
+    const task = createTaskSvc(store)
+    await store.save_inbound(inbound())
+    await store.save_task(row())
+    await store.save_outbound_txn({
+      id: "otx_reply_1",
+      task_id: "tsk_1",
+      session_id: "ses_1",
+      action: "reply",
+      target_msg_id: "msg_1",
+      remote_msg_id: "out_reply_done",
+      out: {
+        kind: "card",
+        body: {
+          title: "Codex",
+          template: "green",
+          text: "done",
+        },
+      },
+      meta: {
+        kind: "final",
+        terminal: true,
+      },
+      state: "remote_done",
+      created_at: 1,
+      updated_at: 2,
+    })
+
+    await recover_outbound_txns(store, task)
+
+    expect(await store.get_outbound_txn("otx_reply_1")).toBeNull()
+    expect((await store.get_task("tsk_1"))?.outbound_id).toBe("out_reply_done")
+    expect(await store.get_outbound("tsk_1")).toMatchObject({
+      msg_id: "out_reply_done",
+      kind: "card",
+    })
+    const history = await store.list_assistant_outbounds("tsk_1")
+    expect(history).toHaveLength(1)
+    expect(history[0]).toMatchObject({
+      task_id: "tsk_1",
+      session_id: "ses_1",
+      kind: "final",
+      action: "reply",
+      state: "emitted",
+      terminal: true,
+      feishu_message_id: "out_reply_done",
+    })
+  })
+
+  test("recovers a remote-done send transaction without sending again", async () => {
+    const store = createMemoryStore()
+    const task = createTaskSvc(store)
+    await store.save_inbound(inbound({ message_id: undefined, raw: {} } as Partial<InboundMessage>))
+    await store.save_task(row({ reply_anchor_message_id: undefined }))
+    await store.save_outbound_txn({
+      id: "otx_send_1",
+      task_id: "tsk_1",
+      session_id: "ses_1",
+      action: "send",
+      target_msg_id: "chat",
+      remote_msg_id: "out_send_done",
+      out: {
+        kind: "card",
+        body: {
+          title: "Codex",
+          template: "green",
+          text: "done",
+        },
+      },
+      meta: {
+        kind: "final",
+        terminal: true,
+      },
+      state: "remote_done",
+      created_at: 1,
+      updated_at: 2,
+    })
+
+    await recover_outbound_txns(store, task)
+
+    expect(await store.get_outbound_txn("otx_send_1")).toBeNull()
+    expect((await store.get_task("tsk_1"))?.outbound_id).toBe("out_send_done")
+    expect(await store.get_outbound("tsk_1")).toMatchObject({
+      msg_id: "out_send_done",
+      kind: "card",
+    })
+    const history = await store.list_assistant_outbounds("tsk_1")
+    expect(history).toHaveLength(1)
+    expect(history[0]).toMatchObject({
+      kind: "final",
+      action: "reply",
+      feishu_message_id: "out_send_done",
+    })
   })
 
 

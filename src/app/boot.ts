@@ -55,6 +55,8 @@ import {
   type RecoverMode,
 } from "./text.js"
 import { normalizeWorkspace as scope_workspace, parseWorkspaceSelection } from "../workspace.js"
+import { decidePublish } from "./publish-policy.js"
+import { decidePromotedWaitAction, decideQueuedWait, waitReqType, waitStatus } from "./wait-policy.js"
 export { explain, friendly, status_text } from "./text.js"
 
 type App = {
@@ -316,11 +318,11 @@ function question_meta(payload: unknown) {
 }
 
 function wait_req_type(kind: WaitOutbound["kind"]) {
-  return kind === "approval" ? ("permission" as const) : ("question" as const)
+  return waitReqType(kind)
 }
 
 function wait_status(kind: WaitOutbound["kind"]) {
-  return kind === "approval" ? ("waiting_permission" as const) : ("waiting_question" as const)
+  return waitStatus(kind)
 }
 
 function wait_note(item: WaitOutbound) {
@@ -414,7 +416,12 @@ async function queue_wait(
   ])
   const time = Date.now()
   const existing = open.find((item) => item.req_key === input.req)
-  const is_head = existing ? open[0]?.id === existing.id : open.length === 0
+  const queued = decideQueuedWait({
+    openCount: existing ? open.findIndex((item) => item.id === existing.id) : open.length,
+    visible: input.visible,
+    rowOutboundId: row.outbound_id,
+  })
+  const is_head = existing ? open[0]?.id === existing.id : queued.isHead
   if (existing) {
     const next = {
       ...existing,
@@ -433,13 +440,13 @@ async function queue_wait(
     session_id: row.session_id,
     seq: (history.at(-1)?.seq ?? 0) + 1,
     kind: input.kind,
-    action: is_head && input.visible ? (row.outbound_id ? "patch" : "reply") : "deferred",
+    action: queued.action,
     state: "open",
     origin_inbound_id: row.inbound_id,
     origin_message_id: row.reply_anchor_message_id ?? inbound?.message_id ?? "",
     req_key: input.req,
     terminal: false,
-    feishu_message_id: is_head && input.visible ? row.outbound_id : undefined,
+    feishu_message_id: queued.feishuMessageId,
     payload: input.payload,
     created_at: time,
     updated_at: time,
@@ -497,11 +504,12 @@ function wait_out(render: Render, item: WaitOutbound) {
 }
 
 async function wait_action(store: Store, row: Task, item: WaitOutbound) {
-  if (item.feishu_message_id) return "patch" as const
-  if (item.action === "reply" || item.action === "patch") return item.action
   const history = (await store.list_assistant_outbounds(row.id)).filter(wait_outbound)
-  const seen_wait = history.some((candidate) => candidate.seq < item.seq)
-  return !seen_wait && row.outbound_id ? ("patch" as const) : ("reply" as const)
+  return decidePromotedWaitAction({
+    item,
+    row,
+    priorWaitCount: history.filter((candidate) => candidate.seq < item.seq).length,
+  })
 }
 
 async function promote_wait(store: Store, row: Task, item: WaitOutbound) {
@@ -870,6 +878,81 @@ async function sync_visible_slot(
   await saveout(store, row, msg_id, out)
 }
 
+async function begin_outbound_txn(
+  store: Store,
+  row: TaskRow,
+  action: "send" | "reply" | "patch",
+  msg_id: string,
+  out: RenderOut,
+  meta?: PublishMeta,
+) {
+  const now = Date.now()
+  const item = {
+    id: `otx_${row.id}_${crypto.randomUUID()}`,
+    task_id: row.id,
+    session_id: row.session_id,
+    action,
+    target_msg_id: msg_id,
+    out,
+    meta: meta ? { kind: meta.kind, terminal: meta.terminal } : undefined,
+    state: "preparing" as const,
+    created_at: now,
+    updated_at: now,
+  }
+  await store.save_outbound_txn(item)
+  return item
+}
+
+async function mark_outbound_txn_remote_done(
+  store: Store,
+  txn: Awaited<ReturnType<typeof begin_outbound_txn>>,
+  remote_msg_id?: string,
+) {
+  await store.save_outbound_txn({
+    ...txn,
+    remote_msg_id,
+    state: "remote_done",
+    updated_at: Date.now(),
+  })
+}
+
+async function finish_outbound_txn(store: Store, txn: Awaited<ReturnType<typeof begin_outbound_txn>>) {
+  await store.drop_outbound_txn(txn.id)
+}
+
+async function record_outbound_success(
+  store: Store,
+  task: ReturnType<typeof createTaskSvc>,
+  row: TaskRow,
+  action: "reply" | "patch",
+  msg_id: string,
+  out: RenderOut,
+  meta?: PublishMeta,
+) {
+  if (meta) {
+    await emit_outbound(store, row, out, {
+      ...meta,
+      action,
+      feishu_message_id: msg_id,
+    })
+  }
+  if (meta?.kind !== "intermediate" || action === "patch") {
+    await sync_visible_slot(store, task, row, msg_id, out, action === "reply")
+  }
+}
+
+export async function recover_outbound_txns(store: Store, task: ReturnType<typeof createTaskSvc>) {
+  const txns = await store.list_outbound_txns("remote_done")
+  for (const txn of txns) {
+    const row = await store.get_task(txn.task_id)
+    if (!row) continue
+    const msg_id = txn.action === "patch" ? txn.target_msg_id : txn.remote_msg_id
+    if (!msg_id) continue
+    await record_outbound_success(store, task, row, txn.action === "patch" ? "patch" : "reply", msg_id, txn.out, txn.meta)
+    await store.drop_outbound_txn(txn.id)
+  }
+}
+
 async function deliver(
   store: Store,
   task: ReturnType<typeof createTaskSvc>,
@@ -888,25 +971,25 @@ async function deliver(
   }
   const inbound = await store.get_inbound(row.inbound_id)
   const reply_id = row.reply_anchor_message_id ?? inbound?.message_id
-  const result = reply_id
-    ? await feishu.reply({
-        msg_id: reply_id,
-        out,
-      })
-    : await feishu.send({
-        chat_id,
-        out,
-      })
-  if (meta) {
-    await emit_outbound(store, row, out, {
-      ...meta,
-      action: "reply",
-      feishu_message_id: result.id,
-    })
+  const txn = await begin_outbound_txn(store, row, reply_id ? "reply" : "send", reply_id ?? chat_id, out, meta)
+  let result: { id: string }
+  try {
+    result = reply_id
+      ? await feishu.reply({
+          msg_id: reply_id,
+          out,
+        })
+      : await feishu.send({
+          chat_id,
+          out,
+        })
+  } catch (err) {
+    await finish_outbound_txn(store, txn)
+    throw err
   }
-  if (meta?.kind !== "intermediate") {
-    await sync_visible_slot(store, task, row, result.id, out, true)
-  }
+  await mark_outbound_txn_remote_done(store, txn, result.id)
+  await record_outbound_success(store, task, row, "reply", result.id, out, meta)
+  await finish_outbound_txn(store, txn)
   return result.id
 }
 
@@ -1494,13 +1577,25 @@ export async function publish(
 ) {
   let row = base ?? (await store.get_last_task(session_id))
   const note = text(out)
-  if (opts?.dedup && row) {
-    const hit = await store.get_outbound(row.id)
-    if (hit && hit.kind === out.kind && JSON.stringify(hit.payload) === JSON.stringify(out.body)) return row
-    if (!hit && row.note && note && row.note === note) return row
+  const visible = row ? await store.get_outbound(row.id) : null
+  let history: AssistantOutbound[] | undefined
+  const assistant_history = async () => {
+    if (!row) return []
+    history ??= await store.list_assistant_outbounds(row.id)
+    return history
   }
+  const decision = decidePublish({
+    row,
+    out,
+    note,
+    dedup: opts?.dedup,
+    visible,
+    history: row ? await assistant_history() : [],
+    kind: meta?.kind,
+  })
+  if (decision.action === "skip") return row
 
-  if (!row) {
+  if (decision.action === "send") {
     await feishu.send({
       chat_id,
       out,
@@ -1508,30 +1603,17 @@ export async function publish(
     return row
   }
 
+  if (!row) return row
+
   const current_row: TaskRow = row
-  let history: AssistantOutbound[] | undefined
-  const assistant_history = async () => {
-    history ??= await store.list_assistant_outbounds(current_row.id)
-    return history
-  }
+  void current_row
 
-  const first_intermediate =
-    meta?.kind === "intermediate" &&
-    !row.status_outbound_id &&
-    !(await assistant_history()).some((item) => item.kind === "intermediate" && item.state === "emitted")
-  const intermediate_status_target = row.outbound_id
-
-  const final_after_intermediate =
-    !!row.outbound_id &&
-    meta?.kind === "final" &&
-    (await assistant_history()).some((item) => item.kind === "intermediate" && item.state === "emitted")
-
-  if (final_after_intermediate) {
+  if (decision.action === "final_after_intermediate") {
     await deliver(store, task, feishu, row, chat_id, out, meta)
-    if (typeof row.status_outbound_id === "string") {
+    if (typeof decision.status_target === "string") {
       await feishu
         .patch({
-          msg_id: row.status_outbound_id,
+          msg_id: decision.status_target,
           out: terminal_status_patch(out),
         })
         .catch((err) => {
@@ -1547,15 +1629,17 @@ export async function publish(
     return row
   }
 
-  if (row.outbound_id && meta?.kind !== "intermediate" && !final_after_intermediate) {
+  if (decision.action === "patch") {
     const patch_row = row
-    const patch_target = row.outbound_id
+    const patch_target = decision.target
+    const txn = await begin_outbound_txn(store, patch_row, "patch", patch_target, out, meta)
     try {
       await feishu.patch({
         msg_id: patch_target,
         out,
       })
     } catch (err) {
+      await finish_outbound_txn(store, txn)
       console.warn("[publish.patch]", err instanceof Error ? err.message : String(err))
       const reply_id = await deliver(store, task, feishu, patch_row, chat_id, out, meta)
       if (reply_id && patch_row.status_outbound_id === patch_target) {
@@ -1573,14 +1657,9 @@ export async function publish(
       }
       return row
     }
-    if (meta) {
-      await emit_outbound(store, patch_row, out, {
-        ...meta,
-        action: "patch",
-        feishu_message_id: patch_target,
-      })
-    }
-    await sync_visible_slot(store, task, patch_row, patch_target, out)
+    await mark_outbound_txn_remote_done(store, txn)
+    await record_outbound_success(store, task, patch_row, "patch", patch_target, out, meta)
+    await finish_outbound_txn(store, txn)
     if (note) {
       await task.note({
         id: row.id,
@@ -1591,8 +1670,8 @@ export async function publish(
   }
 
   const reply_id = await deliver(store, task, feishu, row, chat_id, out, meta)
-  if (first_intermediate && reply_id) {
-    const status_target = intermediate_status_target ?? reply_id
+  if (decision.action === "reply" && decision.first_intermediate && reply_id) {
+    const status_target = decision.intermediate_status_target ?? reply_id
     await task.link({
       id: row.id,
       outbound_id: status_target,
@@ -4543,6 +4622,7 @@ export function createApp(conf = cfg()): App {
       await event.start()
       await conn.start()
       watch.start()
+      await recover_outbound_txns(store, task)
       await recover(conf, store, task, feishu, render, codex)
       feishu.sync().catch((err) => {
         console.warn("[feishu.sync]", err instanceof Error ? err.message : String(err))

@@ -15,6 +15,7 @@ import type {
   PromptPart,
 } from "../contracts.js"
 import { createAppServerRpc, type AppServerRpc, type RpcMessage } from "./rpc.js"
+import { CodexTurnState } from "./turn-state.js"
 
 type Json = Record<string, unknown>
 
@@ -92,8 +93,7 @@ export function mapCodexSkillsListResponse(result: CodexSkillsListResponse): Cod
 }
 
 const rpcs = new WeakMap<AppCfg, AppServerRpc>()
-const turnByThread = new Map<string, string>()
-const staleTurnByThread = new Map<string, string>()
+const turns = new CodexTurnState()
 
 function obj(input: unknown): Record<string, unknown> | undefined {
   return input && typeof input === "object" ? input as Record<string, unknown> : undefined
@@ -147,30 +147,19 @@ function thread_missing(err: unknown) {
 }
 
 function remember_turn(threadId: unknown, turnId: unknown) {
-  const thread = str(threadId)
-  const turn = str(turnId)
-  if (thread && turn) turnByThread.set(thread, turn)
+  turns.remember(threadId, turnId)
 }
 
 function forget_turn(threadId: unknown, turnId: unknown) {
-  const thread = str(threadId)
-  if (!thread) return
-  const turn = str(turnId)
-  if (!turn || turnByThread.get(thread) === turn) turnByThread.delete(thread)
+  turns.forget(threadId, turnId)
 }
 
 function mark_stale_turn(threadId: unknown, turnId: unknown) {
-  const thread = str(threadId)
-  const turn = str(turnId)
-  if (thread && turn) staleTurnByThread.set(thread, turn)
+  turns.markStale(threadId, turnId)
 }
 
 function consume_stale_turn(threadId: unknown) {
-  const thread = str(threadId)
-  if (!thread) return
-  const turn = staleTurnByThread.get(thread)
-  staleTurnByThread.delete(thread)
-  return turn
+  return turns.consumeStale(threadId)
 }
 
 function rpc(cfg: AppCfg) {
@@ -401,11 +390,10 @@ export function createCodexSvc(cfg: AppCfg): CodexSvc {
     },
 
     async abort(input) {
-      const turnId = turnByThread.get(input.session_id)
+      const turnId = turns.active(input.session_id)
       if (!turnId) return
       await request(cfg, "turn/interrupt", { threadId: input.session_id, turnId })
-      forget_turn(input.session_id, turnId)
-      mark_stale_turn(input.session_id, turnId)
+      turns.abort(input.session_id)
     },
 
     async allow(input) {

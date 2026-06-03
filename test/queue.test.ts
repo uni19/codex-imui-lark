@@ -101,4 +101,33 @@ describe("queue", () => {
       status: "done",
     })
   })
+
+  test("stop returns without waiting forever for a stuck handler and requeues running jobs", async () => {
+    const store = createMemoryStore()
+    const warn = console.warn
+    console.warn = () => undefined
+    const queue = createQueue(
+      store,
+      async () => {
+        await new Promise(() => undefined)
+      },
+      undefined,
+      { stop_timeout_ms: 50 },
+    )
+
+    try {
+      await queue.start()
+      await queue.push({ id: "in_stuck" })
+      await wait(async () => (await store.get_job("in_stuck"))?.status === "running")
+      const start = Date.now()
+      await queue.stop()
+
+      expect(Date.now() - start).toBeLessThan(1_000)
+      expect(await store.get_job("in_stuck")).toMatchObject({
+        status: "queued",
+      })
+    } finally {
+      console.warn = warn
+    }
+  })
 })
