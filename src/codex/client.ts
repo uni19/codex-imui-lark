@@ -93,6 +93,7 @@ export function mapCodexSkillsListResponse(result: CodexSkillsListResponse): Cod
 
 const rpcs = new WeakMap<AppCfg, AppServerRpc>()
 const turnByThread = new Map<string, string>()
+const staleTurnByThread = new Map<string, string>()
 
 function obj(input: unknown): Record<string, unknown> | undefined {
   return input && typeof input === "object" ? input as Record<string, unknown> : undefined
@@ -156,6 +157,20 @@ function forget_turn(threadId: unknown, turnId: unknown) {
   if (!thread) return
   const turn = str(turnId)
   if (!turn || turnByThread.get(thread) === turn) turnByThread.delete(thread)
+}
+
+function mark_stale_turn(threadId: unknown, turnId: unknown) {
+  const thread = str(threadId)
+  const turn = str(turnId)
+  if (thread && turn) staleTurnByThread.set(thread, turn)
+}
+
+function consume_stale_turn(threadId: unknown) {
+  const thread = str(threadId)
+  if (!thread) return
+  const turn = staleTurnByThread.get(thread)
+  staleTurnByThread.delete(thread)
+  return turn
 }
 
 function rpc(cfg: AppCfg) {
@@ -253,6 +268,16 @@ function to_input(parts: PromptPart[] | undefined, text?: string) {
     if (part.url.startsWith("file://")) return { type: "localImage", path: part.url.slice("file://".length) }
     return { type: "text", text: `[附件] ${part.filename}: ${part.url}`, text_elements: [] }
   })
+}
+
+export function turnStartParams(cfg: AppCfg, input: Parameters<CodexSvc["prompt"]>[0], expectedTurnId?: string) {
+  return {
+    threadId: input.session_id,
+    input: to_input(input.parts, input.text),
+    cwd: dir(input.directory ?? cfg.codex.directory),
+    model: model_id(input.model),
+    ...(expectedTurnId ? { expectedTurnId } : {}),
+  }
 }
 
 async function request<T = unknown>(cfg: AppCfg, method: string, params: unknown = {}) {
@@ -361,12 +386,8 @@ export function createCodexSvc(cfg: AppCfg): CodexSvc {
     },
 
     async prompt(input) {
-      const params = {
-        threadId: input.session_id,
-        input: to_input(input.parts, input.text),
-        cwd: dir(input.directory ?? cfg.codex.directory),
-        model: model_id(input.model),
-      }
+      const expectedTurnId = consume_stale_turn(input.session_id)
+      const params = turnStartParams(cfg, input, expectedTurnId)
       const result = await request<{ turn: { id: string } }>(cfg, "turn/start", params).catch(async (err) => {
         if (!thread_missing(err)) throw err
         await resume_thread(cfg, {
@@ -384,6 +405,7 @@ export function createCodexSvc(cfg: AppCfg): CodexSvc {
       if (!turnId) return
       await request(cfg, "turn/interrupt", { threadId: input.session_id, turnId })
       forget_turn(input.session_id, turnId)
+      mark_stale_turn(input.session_id, turnId)
     },
 
     async allow(input) {
@@ -501,6 +523,7 @@ export function codexEventFromRpc(msg: RpcMessage): { type: string; properties: 
   if (method === "turn/completed") {
     const turnId = turn_id_from(params)
     forget_turn(params.threadId, turnId)
+    mark_stale_turn(params.threadId, turnId)
     if (turn_status_from(params) === "failed") {
       return { type: "session.error", properties: { sessionID: params.threadId, error: turn_error_from(params) ?? params.turn ?? params } }
     }

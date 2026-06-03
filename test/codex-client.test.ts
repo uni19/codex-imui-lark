@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { codexEventFromRpc, mapCodexSkillsListResponse, rpcResponseId } from "../src/codex/client.ts"
+import { codexEventFromRpc, mapCodexSkillsListResponse, rpcResponseId, turnStartParams } from "../src/codex/client.ts"
 import type { AppCfg } from "../src/contracts.ts"
 import { createCodexSvc } from "../src/codex/client.ts"
 
@@ -15,6 +15,14 @@ function cfg() {
 }
 
 describe("codex app-server adapter", () => {
+  test("includes expectedTurnId when starting after a known completed turn", () => {
+    expect(turnStartParams(cfg(), { session_id: "thr_1", text: "next" }, "turn_old")).toMatchObject({
+      threadId: "thr_1",
+      expectedTurnId: "turn_old",
+      input: [{ type: "text", text: "next", text_elements: [] }],
+    })
+  })
+
   test("maps command approval request into gateway permission event", () => {
     expect(codexEventFromRpc({
       id: 7,
