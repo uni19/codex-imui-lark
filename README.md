@@ -178,6 +178,8 @@ Feishu Open Platform
 - `FEISHU_APP_ID`: 飞书应用 App ID
 - `FEISHU_APP_SECRET`: 飞书应用 App Secret
 - `FEISHU_BOT_OPEN_ID`: 可选；显式指定 bot open id，群聊首条 `@bot` 判断会更稳定
+- `FEISHU_API_BASE_URL`: 可选；飞书 OpenAPI 根地址，默认 `https://open.feishu.cn/open-apis`
+- `FEISHU_WS_BASE_URL`: 可选；飞书长连接 SDK domain，默认从 `FEISHU_API_BASE_URL` 推导，例如 `https://open.feishu.cn/open-apis` 会推导为 `https://open.feishu.cn`
 - `CODEX_BASE_URL` / `CODEX_USERNAME` / `CODEX_PASSWORD`: 兼容旧配置；当前 app-server 适配通常不使用
 - `CODEX_DIRECTORY`: 默认工作目录
 - `CODEX_WORKSPACE`: 默认远端 workspace；仅在远端场景下需要，必须使用 `wrk*` ID，本地项目通常留空
@@ -203,12 +205,17 @@ FEISHU_MODE=long_conn
 FEISHU_APP_ID=cli_xxx
 FEISHU_APP_SECRET=xxx
 FEISHU_BOT_OPEN_ID=ou_xxx
+# 默认可省略；Lark global 可改为 https://open.larksuite.com/open-apis，长连接 domain 会自动跟随为 https://open.larksuite.com
+FEISHU_API_BASE_URL=https://open.feishu.cn/open-apis
+FEISHU_WS_BASE_URL=
 CODEX_DIRECTORY=/absolute/path/to/your/working-directory
 ```
 
 说明：
 
 - `FEISHU_BOT_OPEN_ID` 不是强制项，但建议配置，能减少群聊首条 `@bot` 判断歧义
+- `FEISHU_API_BASE_URL` 默认是飞书中国区 OpenAPI；如需接 Lark global，可配置为 `https://open.larksuite.com/open-apis`
+- `FEISHU_WS_BASE_URL` 默认从 `FEISHU_API_BASE_URL` 自动推导并传给 `@larksuiteoapi/node-sdk`；私有化或代理环境可显式覆盖
 - `CODEX_DIRECTORY` 表示默认工作目录，不要求是 Git worktree；当前 app-server 适配以本地目录线程为主，`CODEX_WORKSPACE` 通常留空
 - 如果不填 `FEISHU_BOT_OPEN_ID`，服务会回退到按应用名称匹配 mention
 - 真实飞书联调前，请先跑完自动化测试，再按发布清单逐项手工验证

@@ -23,6 +23,12 @@ function validURL(text?: string) {
   }
 }
 
+function validBaseURL(text?: string) {
+  if (!validURL(text)) return false
+  if (!text) return true
+  return !/[?#]/.test(text)
+}
+
 function writable(file: string) {
   const dir = path.dirname(file)
   mkdirSync(dir, { recursive: true })
@@ -35,6 +41,14 @@ export function validateAppCfg(conf: AppCfg, env: NodeJS.ProcessEnv = process.en
 
   if (!validURL(conf.codex.base_url)) {
     add(errors, "CODEX_BASE_URL 必须是 http(s) URL。")
+  }
+
+  if (!validBaseURL(conf.feishu.api_base_url)) {
+    add(errors, "FEISHU_API_BASE_URL 必须是 http(s) URL，且不能包含 query/hash。")
+  }
+
+  if (!validBaseURL(conf.feishu.ws_base_url)) {
+    add(errors, "FEISHU_WS_BASE_URL 必须是 http(s) URL，且不能包含 query/hash。")
   }
 
 

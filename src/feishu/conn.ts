@@ -6,6 +6,7 @@ type Input = {
   mode: "stdin" | "long_conn" | "off"
   app_id?: string
   app_secret?: string
+  ws_base_url?: string
   on_msg: (input: InboundEvent) => Promise<void>
   on_state?: (input: ConnState) => Promise<void>
 }
@@ -92,6 +93,7 @@ export function createFeishuConn(input: Input): FeishuConn {
         const ws = new Lark.WSClient({
           appId: input.app_id,
           appSecret: input.app_secret,
+          ...(input.ws_base_url ? { domain: input.ws_base_url } : {}),
           loggerLevel: Lark.LoggerLevel.info,
           logger,
         })

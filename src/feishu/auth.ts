@@ -1,6 +1,7 @@
 type Input = {
   app_id?: string
   app_secret?: string
+  api_base_url?: string
 }
 
 type Token = {
@@ -14,7 +15,12 @@ function err(raw: Token) {
   return raw.msg ? `feishu auth failed: ${raw.msg}` : "feishu auth failed"
 }
 
+function api(input?: string) {
+  return (input || "https://open.feishu.cn/open-apis").replace(/\/+$/, "")
+}
+
 export function createFeishuAuth(input: Input) {
+  const api_base_url = api(input.api_base_url)
   let token = ""
   let expire = 0
 
@@ -29,7 +35,7 @@ export function createFeishuAuth(input: Input) {
       }
       if (token && Date.now() < expire - 60_000) return token
 
-      const res = await fetch("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal", {
+      const res = await fetch(`${api_base_url}/auth/v3/tenant_access_token/internal`, {
         method: "POST",
         headers: {
           "content-type": "application/json",

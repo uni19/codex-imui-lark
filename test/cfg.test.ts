@@ -27,3 +27,18 @@ test("cfg normalizes invalid codex workspace env to undefined", () => {
   process.env.CODEX_WORKSPACE = " ws_bad "
   expect(cfg().codex.workspace).toBeUndefined()
 })
+
+test("cfg exposes configurable Feishu endpoints with default OpenAPI base", () => {
+  expect(cfg().feishu.api_base_url).toBe("https://open.feishu.cn/open-apis")
+  expect(cfg().feishu.ws_base_url).toBe("https://open.feishu.cn")
+
+  process.env.FEISHU_API_BASE_URL = "https://open.larksuite.com/open-apis"
+
+  expect(cfg().feishu).toMatchObject({
+    api_base_url: "https://open.larksuite.com/open-apis",
+    ws_base_url: "https://open.larksuite.com",
+  })
+
+  process.env.FEISHU_WS_BASE_URL = "https://custom-feishu.example.com"
+  expect(cfg().feishu.ws_base_url).toBe("https://custom-feishu.example.com")
+})

@@ -33,6 +33,15 @@ afterEach(() => {
 })
 
 describe("codex app-server rpc", () => {
+  test("summarizes user-rejected tool stderr without dumping the command", async () => {
+    const { formatAppServerStderr } = await import("../src/codex/rpc.ts")
+
+    expect(formatAppServerStderr('ERROR router: error=exec_command failed for `cat > /Users/demo/.codex/skills/demo/SKILL.md`: CreateProcess { message: "Rejected(\\"rejected by user\\")" }')).toEqual({
+      level: "warn",
+      message: "[codex.app-server] tool execution was rejected by user; suppressed verbose app-server stderr",
+    })
+  })
+
   test("times out pending requests instead of waiting forever", async () => {
     const { createAppServerRpc } = await import("../src/codex/rpc.ts")
     const rpc = createAppServerRpc({

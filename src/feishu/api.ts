@@ -714,7 +714,12 @@ function list(val: unknown) {
 type Input = {
   app_id?: string
   app_secret?: string
+  api_base_url?: string
   cache?: string
+}
+
+function api(input?: string) {
+  return (input || "https://open.feishu.cn/open-apis").replace(/\/+$/, "")
 }
 
 function ext(mime?: string, name?: string, kind?: "file" | "image") {
@@ -769,9 +774,11 @@ function filename(headers: Headers, name?: string) {
 }
 
 export function createFeishuApi(input?: Input): FeishuApi {
+  const api_base_url = api(input?.api_base_url)
   const auth = createFeishuAuth({
     app_id: input?.app_id,
     app_secret: input?.app_secret,
+    api_base_url,
   })
   let names: string[] = []
   let load: Promise<void> | undefined
@@ -803,7 +810,7 @@ export function createFeishuApi(input?: Input): FeishuApi {
       } satisfies Data
     }
 
-    const url = new URL("https://open.feishu.cn/open-apis" + path)
+    const url = new URL(api_base_url + path)
     if (query) {
       for (const [k, v] of query.entries()) url.searchParams.set(k, v)
     }
@@ -846,7 +853,7 @@ export function createFeishuApi(input?: Input): FeishuApi {
       }
     }
 
-    const url = new URL(`https://open.feishu.cn/open-apis/im/v1/messages/${message_id}/resources/${asset.key}`)
+    const url = new URL(`${api_base_url}/im/v1/messages/${message_id}/resources/${asset.key}`)
     url.searchParams.set("type", asset.kind)
     const res = await fetch(url, {
       method: "GET",

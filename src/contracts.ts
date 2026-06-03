@@ -365,6 +365,8 @@ export type AppCfg = {
     app_id?: string
     app_secret?: string
     bot_id?: string
+    api_base_url?: string
+    ws_base_url?: string
   }
   codex: {
     base_url?: string

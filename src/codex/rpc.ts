@@ -46,6 +46,21 @@ function parse_lines(buf: string) {
   return { list, rest: buf }
 }
 
+export function formatAppServerStderr(input: string) {
+  const text = input.trim()
+  if (!text) return
+  if (text.includes("Rejected") && text.toLowerCase().includes("rejected by user")) {
+    return {
+      level: "warn" as const,
+      message: "[codex.app-server] tool execution was rejected by user; suppressed verbose app-server stderr",
+    }
+  }
+  return {
+    level: "error" as const,
+    message: `[codex.app-server] ${text}`,
+  }
+}
+
 export function createAppServerRpc(cfg: AppCfg): AppServerRpc {
   const args = ["app-server", "--stdio"]
   if (cfg.codex.model) args.push("-c", `model=${JSON.stringify(cfg.codex.model.modelID)}`)
@@ -90,8 +105,10 @@ export function createAppServerRpc(cfg: AppCfg): AppServerRpc {
   })
 
   child.stderr.on("data", (chunk: Buffer) => {
-    const text = chunk.toString("utf8").trim()
-    if (text) console.error("[codex.app-server]", text)
+    const item = formatAppServerStderr(chunk.toString("utf8"))
+    if (!item) return
+    if (item.level === "warn") console.warn(item.message)
+    else console.error(item.message)
   })
 
   child.on("exit", (code, signal) => {

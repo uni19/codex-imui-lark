@@ -59,6 +59,8 @@ describe("validate app cfg", () => {
     try {
       const bad = conf(root)
       bad.codex.base_url = "notaurl"
+      bad.feishu.api_base_url = "notaurl"
+      bad.feishu.ws_base_url = "https://example.com/path?bad=1"
       bad.codex.password = undefined
       bad.codex.directory = path.join(root, "missing")
       bad.feishu.app_id = undefined
@@ -71,6 +73,8 @@ describe("validate app cfg", () => {
 
       expect(out.ok).toBe(false)
       expect(out.errors).toContain("CODEX_BASE_URL 必须是 http(s) URL。")
+      expect(out.errors).toContain("FEISHU_API_BASE_URL 必须是 http(s) URL，且不能包含 query/hash。")
+      expect(out.errors).toContain("FEISHU_WS_BASE_URL 必须是 http(s) URL，且不能包含 query/hash。")
       expect(out.errors).toContain("FEISHU_MODE=long_conn 时必须配置 FEISHU_APP_ID。")
       expect(out.errors).toContain(`CODEX_DIRECTORY 不存在：${path.join(root, "missing")}`)
       expect(out.errors).toContain("IMUI_ASSET_TTL_HOURS 必须大于等于 1。")
