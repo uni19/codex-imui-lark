@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test"
 import { status_card } from "../src/app/text.ts"
-import { buildCard, sanitizeMarkdown } from "../src/feishu/api.ts"
+import { buildCard, encodeFeishuContent, redactFeishuAuditText, sanitizeMarkdown } from "../src/feishu/api.ts"
 import { createRender } from "../src/render/text.ts"
 
 type CardElement = Record<string, unknown>
@@ -169,6 +169,23 @@ describe("feishu card rendering", () => {
         "图片（tenant asset）：img_v2_secret",
       ].join("\n"),
     })
+  })
+
+  test("redacts email addresses before sending content through Feishu audit", () => {
+    const render = createRender()
+    const text = 'exec_command failed for ssh-keygen -C "demo.user@example.com"'
+    const encoded = JSON.parse(encodeFeishuContent(render.final({ text }))) as Record<string, unknown>
+    const out = buildCard(render.final({ text: redactFeishuAuditText(text) }).body) as Record<string, unknown>
+    const encodedContent = String(elements(encoded)[0]?.content ?? "")
+    const content = String(elements(out)[0]?.content ?? "")
+
+    expect(encodedContent).toContain("demo.user[at]example.com")
+    expect(encodedContent).not.toContain("demo.user@example.com")
+    expect(content).toContain("demo.user[at]example.com")
+    expect(content).not.toContain("demo.user@example.com")
+    expect(redactFeishuAuditText("A@Example.COM and foo.bar+baz@sub.example.com")).toBe(
+      "A[at]Example.COM and foo.bar+baz[at]sub.example.com",
+    )
   })
 
   test("sanitizes active markdown outside code and handles edge cases", () => {

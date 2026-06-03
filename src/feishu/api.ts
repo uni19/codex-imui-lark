@@ -147,6 +147,20 @@ function inertEmail(text: string) {
   return text.replace("@", "[at]")
 }
 
+const FEISHU_AUDIT_EMAIL_RE = /\b([a-z0-9._%+-]+)@([a-z0-9.-]+\.[a-z]{2,})\b/gi
+
+export function redactFeishuAuditText(text: string) {
+  return text.replace(FEISHU_AUDIT_EMAIL_RE, (_all: string, local: string, domain: string) => `${local}[at]${domain}`)
+}
+
+function redactFeishuAuditPayload<T>(input: T): T {
+  if (typeof input === "string") return redactFeishuAuditText(input) as T
+  if (!input || typeof input !== "object") return input
+  if (Array.isArray(input)) return input.map((item) => redactFeishuAuditPayload(item)) as T
+
+  return Object.fromEntries(Object.entries(input).map(([key, val]) => [key, redactFeishuAuditPayload(val)])) as T
+}
+
 function linkTarget(text: string) {
   const item = text.trim()
   const angled = /^<([^>\s]+)>/.exec(item)
@@ -649,15 +663,15 @@ export function buildCard(body: unknown) {
   return val
 }
 
-function data(out: RenderOut) {
+export function encodeFeishuContent(out: RenderOut) {
   if (out.kind === "text") {
     const body = out.body as { text?: string } | null
     return JSON.stringify({
-      text: body?.text ?? "",
+      text: redactFeishuAuditText(body?.text ?? ""),
     })
   }
 
-  return JSON.stringify(buildCard(out.body))
+  return JSON.stringify(redactFeishuAuditPayload(buildCard(out.body)))
 }
 
 type Data = {
@@ -868,7 +882,7 @@ export function createFeishuApi(input?: Input): FeishuApi {
         {
           receive_id: input.chat_id,
           msg_type: input.out.kind === "card" ? "interactive" : "text",
-          content: data(input.out),
+          content: encodeFeishuContent(input.out),
         },
         new URLSearchParams({
           receive_id_type: "chat_id",
@@ -882,7 +896,7 @@ export function createFeishuApi(input?: Input): FeishuApi {
     async reply(input) {
       const raw = await req("POST", `/im/v1/messages/${input.msg_id}/reply`, {
         msg_type: input.out.kind === "card" ? "interactive" : "text",
-        content: data(input.out),
+        content: encodeFeishuContent(input.out),
       })
       return {
         id: str(raw.data, "message_id") ?? "fsm_" + crypto.randomUUID(),
@@ -891,7 +905,7 @@ export function createFeishuApi(input?: Input): FeishuApi {
 
     async patch(input) {
       await req("PATCH", `/im/v1/messages/${input.msg_id}`, {
-        content: data(input.out),
+        content: encodeFeishuContent(input.out),
       })
     },
 
