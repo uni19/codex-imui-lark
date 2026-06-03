@@ -2103,6 +2103,19 @@ function ekey(event: CodexEvent, row?: Task | null) {
   }
 }
 
+function event_turn_id(event: CodexEvent) {
+  const turn = event.properties.turnID
+  if (typeof turn === "string" && turn) return turn
+  const part = record(event.properties.part)
+  const message = part?.messageID
+  if (typeof message === "string" && message) return message
+}
+
+function matches_task_turn(event: CodexEvent, row?: Pick<Task, "turn_id"> | null) {
+  const turn = event_turn_id(event)
+  return !turn || !row?.turn_id || row.turn_id === turn
+}
+
 async function once(
   store: Store,
   event: CodexEvent,
@@ -3817,6 +3830,7 @@ export async function on_progress(
     if (row?.status === "aborted") return false
     if (wait(row?.status)) return false
     if (row && !active(row.status)) return false
+    if (!matches_task_turn(event, row)) return false
     const status = event.properties.status as { type?: string } | undefined
     if (status?.type === "idle") return false
     const to = await dest(store, row, session_id)
@@ -3824,6 +3838,13 @@ export async function on_progress(
     if (status?.type === "busy") {
       await once(store, event, row, async () => {
         if (row) {
+          const turn_id = event_turn_id(event)
+          if (turn_id && row.turn_id !== turn_id) {
+            await task.bind_turn({
+              id: row.id,
+              turn_id,
+            })
+          }
           await task.note({
             id: row.id,
             note: "正在处理",
@@ -3870,6 +3891,7 @@ export async function on_progress(
     if (row?.status === "aborted") return false
     if (wait(row?.status)) return false
     if (!row || !active(row.status)) return false
+    if (!matches_task_turn(event, row)) return false
     const to = await dest(store, row, session_id)
     if (!to) return false
     const info = event.properties.info as { role?: string; agent?: string; modelID?: string; variant?: string } | undefined
@@ -3900,6 +3922,7 @@ export async function on_progress(
     if (row?.status === "aborted") return false
     if (wait(row?.status)) return false
     if (!row || !active(row.status)) return false
+    if (!matches_task_turn(event, row)) return false
     const to = await dest(store, row, session_id)
     if (!to) return false
     const part = event.properties.part

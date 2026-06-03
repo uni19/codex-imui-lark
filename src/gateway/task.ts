@@ -61,6 +61,14 @@ export function createTaskSvc(store: Store): TaskSvc {
       }))
     },
 
+    async bind_turn(input) {
+      await patch(input.id, (task) => ({
+        ...task,
+        turn_id: input.turn_id,
+        updated_at: now(),
+      }))
+    },
+
     async wait(input) {
       await patch(input.id, (task) => ({
         ...task,

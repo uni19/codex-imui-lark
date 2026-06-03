@@ -348,4 +348,60 @@ describe("on_progress", () => {
     })
     expect((await store.get_task("tsk_part"))?.note).toBe("正在执行 ls -la")
   })
+
+  test("ignores stale progress from a previous turn after a new task binds to a later turn", async () => {
+    const store = createMemoryStore()
+    const task = createTaskSvc(store)
+    const render = createRender()
+    const push = tick()
+    const ses = session("ses_turn_reuse")
+    await store.save_session(ses)
+    await store.save_inbound(inbound("in_turn_a"))
+    await store.save_inbound(inbound("in_turn_c"))
+    await store.save_task(row("tsk_turn_a", ses.session_id, "in_turn_a", "completed"))
+    await store.save_task(row("tsk_turn_c", ses.session_id, "in_turn_c"))
+
+    await on_progress(store, task, render, push, {
+      type: "session.status",
+      properties: {
+        sessionID: ses.session_id,
+        turnID: "turn_c",
+        status: {
+          type: "busy",
+        },
+      },
+    } satisfies CodexEvent)
+
+    expect((await store.get_task("tsk_turn_c"))?.turn_id).toBe("turn_c")
+
+    const stale = await on_progress(store, task, render, push, {
+      type: "message.part.updated",
+      properties: {
+        sessionID: ses.session_id,
+        turnID: "turn_a",
+        time: 200,
+        part: {
+          messageID: "turn_a",
+          id: "part_old",
+          type: "tool",
+          tool: "bash",
+          state: {
+            status: "running",
+            input: {
+              command: "echo old",
+            },
+          },
+        },
+      },
+    } satisfies CodexEvent)
+
+    expect(stale).toBe(false)
+    expect(push.list).toHaveLength(1)
+    expect(push.list[0]?.out).toMatchObject({
+      body: {
+        text: "正在处理，请稍候…",
+      },
+    })
+    expect((await store.get_task("tsk_turn_c"))?.note).toBe("正在处理")
+  })
 })

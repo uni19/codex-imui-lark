@@ -90,6 +90,7 @@ export type Task = {
   id: string
   im_session_id: string
   session_id: string
+  turn_id?: string
   inbound_id: string
   reply_anchor_message_id?: string
   directory?: string
@@ -447,6 +448,7 @@ export type TaskSvc = {
   }): Promise<void>
   ack(id: string): Promise<void>
   run(id: string): Promise<void>
+  bind_turn(input: { id: string; turn_id?: string }): Promise<void>
   wait(input: { id: string; req_type: "permission" | "question"; req: string }): Promise<void>
   hold(id: string): Promise<void>
   checkpoint(input: { id: string; result_hash?: string; note?: string }): Promise<void>

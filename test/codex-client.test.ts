@@ -134,6 +134,7 @@ describe("codex app-server adapter", () => {
       type: "session.status",
       properties: {
         sessionID: "thr_1",
+        turnID: "turn_1",
         status: { type: "busy" },
       },
     })
@@ -304,6 +305,7 @@ describe("codex app-server adapter", () => {
       type: "message.part.updated",
       properties: {
         sessionID: "thr_1",
+        turnID: "turn_1",
         part: {
           messageID: "turn_1",
           id: "item_1",

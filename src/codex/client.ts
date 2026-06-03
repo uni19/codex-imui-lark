@@ -499,14 +499,15 @@ export function codexEventFromRpc(msg: RpcMessage): { type: string; properties: 
     return { type: "session.status", properties: { sessionID: params.threadId, status: codex_status(params.status) } }
   }
   if (method === "turn/started") {
-    remember_turn(params.threadId, turn_id_from(params))
-    return { type: "session.status", properties: { sessionID: params.threadId, status: { type: "busy" } } }
+    const turnId = turn_id_from(params)
+    remember_turn(params.threadId, turnId)
+    return { type: "session.status", properties: { sessionID: params.threadId, turnID: turnId, status: { type: "busy" } } }
   }
   if (method === "item/agentMessage/delta") {
-    return { type: "message.updated", properties: { sessionID: params.threadId, info: { id: params.itemId, role: "assistant" } } }
+    return { type: "message.updated", properties: { sessionID: params.threadId, turnID: params.turnId, info: { id: params.itemId, role: "assistant" } } }
   }
   if (method === "item/commandExecution/outputDelta" || method === "item/fileChange/outputDelta" || method === "item/plan/delta" || method === "command/exec/outputDelta" || method === "process/outputDelta") {
-    return { type: "message.part.updated", properties: { sessionID: params.threadId, part: { messageID: params.turnId, id: params.itemId, type: method, text: params.delta }, time: Date.now() } }
+    return { type: "message.part.updated", properties: { sessionID: params.threadId, turnID: params.turnId, part: { messageID: params.turnId, id: params.itemId, type: method, text: params.delta }, time: Date.now() } }
   }
   if (method === "turn/completed") {
     const turnId = turn_id_from(params)
